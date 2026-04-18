@@ -105,7 +105,7 @@ func (f *Forwarder) Proxy(w http.ResponseWriter, r *http.Request, route string, 
 		logEntry.StatusCode = statusCode
 		logEntry.Success = false
 		logEntry.FailureReason = summarizeError(err)
-		_, _ = f.upstreams.MarkResult(context.Background(), candidate.Key.ID, false, logEntry.FailureReason)
+		f.recordUpstreamResult(context.Background(), candidate.Key.ID, false, statusCode, logEntry.FailureReason)
 		writeJSONError(w, statusCode, "upstream request failed")
 		return
 	}
@@ -121,14 +121,14 @@ func (f *Forwarder) Proxy(w http.ResponseWriter, r *http.Request, route string, 
 		if copyErr != nil {
 			logEntry.Success = false
 			logEntry.FailureReason = summarizeError(copyErr)
-			_, _ = f.upstreams.MarkResult(context.Background(), candidate.Key.ID, false, logEntry.FailureReason)
+			f.recordUpstreamResult(context.Background(), candidate.Key.ID, false, response.StatusCode, logEntry.FailureReason)
 			return
 		}
 		logEntry.Success = response.StatusCode >= 200 && response.StatusCode < 300
 		if !logEntry.Success {
 			logEntry.FailureReason = response.Status
 		}
-		_, _ = f.upstreams.MarkResult(context.Background(), candidate.Key.ID, logEntry.Success, logEntry.FailureReason)
+		f.recordUpstreamResult(context.Background(), candidate.Key.ID, logEntry.Success, response.StatusCode, logEntry.FailureReason)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (f *Forwarder) Proxy(w http.ResponseWriter, r *http.Request, route string, 
 	if readErr != nil {
 		logEntry.Success = false
 		logEntry.FailureReason = summarizeError(readErr)
-		_, _ = f.upstreams.MarkResult(context.Background(), candidate.Key.ID, false, logEntry.FailureReason)
+		f.recordUpstreamResult(context.Background(), candidate.Key.ID, false, response.StatusCode, logEntry.FailureReason)
 		writeJSONError(w, http.StatusBadGateway, "failed to read upstream response")
 		return
 	}
@@ -147,9 +147,16 @@ func (f *Forwarder) Proxy(w http.ResponseWriter, r *http.Request, route string, 
 		logEntry.FailureReason = summarizeBody(body)
 	}
 	logEntry.Success = response.StatusCode >= 200 && response.StatusCode < 300
-	_, _ = f.upstreams.MarkResult(context.Background(), candidate.Key.ID, logEntry.Success, logEntry.FailureReason)
+	f.recordUpstreamResult(context.Background(), candidate.Key.ID, logEntry.Success, response.StatusCode, logEntry.FailureReason)
 	w.WriteHeader(response.StatusCode)
 	_, _ = w.Write(body)
+}
+
+func (f *Forwarder) recordUpstreamResult(ctx context.Context, upstreamID int64, success bool, statusCode int, failureReason string) {
+	if statusCode == http.StatusUnauthorized {
+		return
+	}
+	_, _ = f.upstreams.MarkResult(ctx, upstreamID, success, failureReason)
 }
 
 func joinUpstreamPath(basePath, route string) string {

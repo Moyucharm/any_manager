@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -396,6 +397,9 @@ func (r *Repository) UpdateUpstreamBalance(ctx context.Context, id int64, balanc
 }
 
 func (r *Repository) InsertRequestLog(ctx context.Context, log RequestLog) error {
+	if log.StatusCode == http.StatusUnauthorized {
+		return nil
+	}
 	var upstreamKeyID any
 	if log.UpstreamKeyID != nil {
 		upstreamKeyID = *log.UpstreamKeyID

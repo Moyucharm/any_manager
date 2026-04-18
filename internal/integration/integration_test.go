@@ -196,6 +196,102 @@ func TestPublicProxyStreamingAndFailoverThreshold(t *testing.T) {
 	}
 }
 
+func TestUnauthorizedDoesNotCountTowardFailoverOrLogs(t *testing.T) {
+	t.Parallel()
+	var primaryHits atomic.Int32
+	var secondaryHits atomic.Int32
+	env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		switch token {
+		case "sk-primary":
+			primaryHits.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"unauthorized key"}}`))
+		case "sk-secondary":
+			secondaryHits.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	})
+	env.bootstrapDownstream(t, "downstream-secret")
+	config, err := env.repo.GetAppConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetAppConfig() error = %v", err)
+	}
+	if _, err := env.repo.UpdateAppConfig(context.Background(), store.UpdateAppConfigInput{
+		OutboundProxyURL:  config.OutboundProxyURL,
+		UpstreamBaseURL:   config.UpstreamBaseURL,
+		UpstreamAuthMode:  config.UpstreamAuthMode,
+		FailoverThreshold: 1,
+		CooldownSeconds:   config.CooldownSeconds,
+	}); err != nil {
+		t.Fatalf("UpdateAppConfig() error = %v", err)
+	}
+	primary, err := env.upstreams.Create(context.Background(), "primary", "sk-primary", true)
+	if err != nil {
+		t.Fatalf("Create(primary) error = %v", err)
+	}
+	if _, err := env.upstreams.Create(context.Background(), "secondary", "sk-secondary", true); err != nil {
+		t.Fatalf("Create(secondary) error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		resp := postPublicMessage(t, env.publicServer.URL, "downstream-secret", `{"model":"claude-3-7-sonnet","messages":[]}`)
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("request %d status = %d, want %d", i, resp.StatusCode, http.StatusUnauthorized)
+		}
+	}
+
+	if primaryHits.Load() != 2 {
+		t.Fatalf("primary hits = %d, want 2", primaryHits.Load())
+	}
+	if secondaryHits.Load() != 0 {
+		t.Fatalf("secondary hits = %d, want 0", secondaryHits.Load())
+	}
+	updatedPrimary, err := env.repo.GetUpstreamKeyByID(context.Background(), primary.ID)
+	if err != nil {
+		t.Fatalf("GetUpstreamKeyByID(primary) error = %v", err)
+	}
+	if updatedPrimary.ConsecutiveFailures != 0 {
+		t.Fatalf("primary consecutive failures = %d, want 0", updatedPrimary.ConsecutiveFailures)
+	}
+	if updatedPrimary.CooldownUntil != nil {
+		t.Fatalf("primary cooldown should remain nil after 401 responses")
+	}
+	logs, err := env.repo.ListRequestLogs(context.Background(), time.Now().UTC().Add(-24*time.Hour), store.RequestLogFilter{})
+	if err != nil {
+		t.Fatalf("ListRequestLogs() error = %v", err)
+	}
+	if len(logs) != 0 {
+		t.Fatalf("log count = %d, want 0", len(logs))
+	}
+}
+
+func TestDownstreamUnauthorizedDoesNotCreateRequestLog(t *testing.T) {
+	t.Parallel()
+	env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+	env.bootstrapDownstream(t, "downstream-secret")
+	resp := postPublicMessage(t, env.publicServer.URL, "wrong-secret", `{"model":"claude-3-7-sonnet","messages":[]}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+	logs, err := env.repo.ListRequestLogs(context.Background(), time.Now().UTC().Add(-24*time.Hour), store.RequestLogFilter{})
+	if err != nil {
+		t.Fatalf("ListRequestLogs() error = %v", err)
+	}
+	if len(logs) != 0 {
+		t.Fatalf("log count = %d, want 0", len(logs))
+	}
+}
+
 func TestRefreshBalanceEndpoint(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
