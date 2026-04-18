@@ -75,11 +75,16 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	adminHandler := adminServer.Router()
 
+	publicMux := http.NewServeMux()
+	publicMux.Handle("/admin", adminHandler)
+	publicMux.Handle("/admin/", adminHandler)
+	publicMux.Handle("/", publicHandler)
+
 	return &App{
 		repo: repo,
 		publicServer: &http.Server{
 			Addr:              cfg.PublicListenAddr,
-			Handler:           publicHandler,
+			Handler:           publicMux,
 			ReadHeaderTimeout: 15 * time.Second,
 		},
 		adminServer: &http.Server{
