@@ -1,0 +1,43 @@
+{{define "content"}}
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+  <section class="bg-white border border-slate-200 rounded-lg p-6">
+    <h2 class="text-base font-semibold text-slate-900 mb-1">出站代理</h2>
+    <p class="text-xs text-slate-500 mb-4">用于访问上游 API。支持 http/https/socks5；留空则直连。</p>
+    <form id="config-form" class="space-y-3">
+      <div>
+        <label class="label">outbound_proxy_url</label>
+        <input class="field font-mono" name="outbound_proxy_url" id="cfg-proxy" placeholder="socks5://127.0.0.1:1080" />
+      </div>
+      <div class="grid grid-cols-2 gap-3 text-xs text-slate-500">
+        <div>upstream_base_url：<span id="cfg-upstream" class="font-mono text-slate-700">—</span></div>
+        <div>upstream_auth_mode：<span id="cfg-authmode" class="font-mono text-slate-700">—</span></div>
+        <div>failover_threshold：<span id="cfg-threshold" class="font-mono text-slate-700">—</span></div>
+        <div>cooldown_seconds：<span id="cfg-cooldown" class="font-mono text-slate-700">—</span></div>
+      </div>
+      <div class="pt-2">
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="bg-white border border-slate-200 rounded-lg p-6">
+    <h2 class="text-base font-semibold text-slate-900 mb-1">重置下游 API Key</h2>
+    <p class="text-xs text-slate-500 mb-4">该 Key 同时作为下游客户端访问凭证与管理员登录密码。重置后所有会话会失效，需要重新登录。</p>
+    <form id="reset-form" class="space-y-3">
+      <div>
+        <label class="label">新的 API Key</label>
+        <input class="field font-mono" name="new_api_key" type="password" required />
+      </div>
+      <div class="pt-2">
+        <button type="submit" class="btn btn-danger">重置并登出</button>
+      </div>
+    </form>
+  </section>
+
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/admin/static/settings.js"></script>
+{{end}}

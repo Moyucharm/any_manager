@@ -15,6 +15,7 @@ import (
 
 	"anymanager/internal/auth"
 	"anymanager/internal/config"
+	"anymanager/internal/http/admin/web"
 	"anymanager/internal/metrics"
 	"anymanager/internal/proxy"
 	"anymanager/internal/security"
@@ -28,10 +29,15 @@ type Server struct {
 	sessions  *auth.SessionManager
 	upstreams *upstream.Service
 	metrics   *metrics.Service
+	renderer  *web.Renderer
 }
 
-func NewServer(repo *store.Repository, hasher *security.Hasher, sessions *auth.SessionManager, upstreams *upstream.Service, metrics *metrics.Service) *Server {
-	return &Server{repo: repo, hasher: hasher, sessions: sessions, upstreams: upstreams, metrics: metrics}
+func NewServer(repo *store.Repository, hasher *security.Hasher, sessions *auth.SessionManager, upstreams *upstream.Service, metrics *metrics.Service) (*Server, error) {
+	renderer, err := web.New()
+	if err != nil {
+		return nil, err
+	}
+	return &Server{repo: repo, hasher: hasher, sessions: sessions, upstreams: upstreams, metrics: metrics, renderer: renderer}, nil
 }
 
 func (s *Server) Router() http.Handler {
@@ -43,6 +49,17 @@ func (s *Server) Router() http.Handler {
 	r.Post("/admin/api/bootstrap", s.handleBootstrap)
 	r.Post("/admin/api/login", s.handleLogin)
 	r.Post("/admin/api/logout", s.handleLogout)
+
+	r.Get("/admin", s.handleLoginPage)
+	r.Mount("/admin/static/", s.renderer.StaticHandler())
+
+	r.Group(func(pages chi.Router) {
+		pages.Use(s.requireAuthPage)
+		pages.Get("/admin/dashboard", s.handleDashboardPage)
+		pages.Get("/admin/upstreams", s.handleUpstreamsPage)
+		pages.Get("/admin/settings", s.handleSettingsPage)
+		pages.Get("/admin/logs", s.handleLogsPage)
+	})
 
 	r.Group(func(protected chi.Router) {
 		protected.Use(s.requireAuth)
@@ -490,6 +507,51 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) requireAuthPage(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(s.sessions.CookieName())
+		if err != nil {
+			http.Redirect(w, r, "/admin", http.StatusFound)
+			return
+		}
+		session, err := s.sessions.Decode(cookie.Value, time.Now().UTC())
+		if err != nil {
+			http.Redirect(w, r, "/admin", http.StatusFound)
+			return
+		}
+		appConfig, err := s.repo.GetAppConfig(r.Context())
+		if err != nil {
+			http.Error(w, "failed to load configuration", http.StatusInternalServerError)
+			return
+		}
+		if session.AuthVersion != appConfig.AuthVersion {
+			http.Redirect(w, r, "/admin", http.StatusFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	s.renderer.RenderLogin(w)
+}
+
+func (s *Server) handleDashboardPage(w http.ResponseWriter, r *http.Request) {
+	s.renderer.RenderPage(w, "dashboard", "仪表盘")
+}
+
+func (s *Server) handleUpstreamsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderer.RenderPage(w, "upstreams", "上游 Key")
+}
+
+func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderer.RenderPage(w, "settings", "系统设置")
+}
+
+func (s *Server) handleLogsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderer.RenderPage(w, "logs", "请求日志")
 }
 
 func sanitizeConfig(appConfig store.AppConfig) map[string]any {

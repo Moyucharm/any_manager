@@ -1,0 +1,45 @@
+{{define "layout.html"}}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>{{.Title}} · Any Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/admin/static/app.css" />
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+<div class="flex min-h-screen">
+  <aside class="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col">
+    <div class="px-5 py-5 border-b border-slate-200">
+      <div class="text-sm text-slate-400">Any Manager</div>
+      <div class="text-lg font-semibold text-slate-900">管理后台</div>
+    </div>
+    <nav class="flex-1 px-2 py-4 space-y-1 text-sm">
+      {{$a := .Active}}
+      <a href="/admin/dashboard" class="nav-item {{if eq $a "dashboard"}}nav-active{{end}}">仪表盘</a>
+      <a href="/admin/upstreams" class="nav-item {{if eq $a "upstreams"}}nav-active{{end}}">上游 Key</a>
+      <a href="/admin/settings"  class="nav-item {{if eq $a "settings"}}nav-active{{end}}">系统设置</a>
+      <a href="/admin/logs"      class="nav-item {{if eq $a "logs"}}nav-active{{end}}">请求日志</a>
+    </nav>
+    <div class="px-2 py-3 border-t border-slate-200">
+      <button id="logout-btn" class="w-full text-left nav-item text-slate-500 hover:text-rose-600">退出登录</button>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0">
+    <header class="h-14 px-8 flex items-center border-b border-slate-200 bg-white">
+      <h1 class="text-base font-semibold text-slate-900">{{.Title}}</h1>
+    </header>
+    <section class="p-8">
+      {{template "content" .}}
+    </section>
+  </main>
+</div>
+
+<div id="toast-root" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+<script src="/admin/static/common.js"></script>
+{{template "scripts" .}}
+</body>
+</html>
+{{end}}

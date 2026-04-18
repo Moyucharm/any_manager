@@ -68,7 +68,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	metricsService := metrics.NewService(repo, upstreamService)
 	forwarder := proxy.NewForwarder(repo, upstreamService, clientFactory)
 	publicHandler := publichttp.NewServer(repo, hasher, forwarder).Router()
-	adminHandler := adminhttp.NewServer(repo, hasher, sessions, upstreamService, metricsService).Router()
+	adminServer, err := adminhttp.NewServer(repo, hasher, sessions, upstreamService, metricsService)
+	if err != nil {
+		_ = repo.Close()
+		return nil, fmt.Errorf("init admin server: %w", err)
+	}
+	adminHandler := adminServer.Router()
 
 	return &App{
 		repo: repo,

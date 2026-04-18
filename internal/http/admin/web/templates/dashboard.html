@@ -1,0 +1,19 @@
+{{define "content"}}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" id="summary-grid">
+  <div class="stat-card"><div class="stat-label">24h 总请求</div><div class="stat-value" id="stat-total">—</div></div>
+  <div class="stat-card"><div class="stat-label">24h 成功率</div><div class="stat-value" id="stat-success-rate">—</div></div>
+  <div class="stat-card"><div class="stat-label">当前可用性</div><div class="stat-value" id="stat-availability">—</div></div>
+  <div class="stat-card"><div class="stat-label">活跃上游</div><div class="stat-value" id="stat-active-alias">—</div></div>
+  <div class="stat-card"><div class="stat-label">已启用 Key</div><div class="stat-value" id="stat-enabled">—</div></div>
+  <div class="stat-card"><div class="stat-label">可用 Key</div><div class="stat-value" id="stat-available">—</div></div>
+</div>
+
+<div class="mt-6 text-xs text-slate-400">
+  <span>自动每 15 秒刷新</span>
+  <button id="refresh-btn" class="btn btn-ghost ml-2">立即刷新</button>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/admin/static/dashboard.js"></script>
+{{end}}

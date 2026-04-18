@@ -1,0 +1,47 @@
+{{define "login.html"}}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>登录 · Any Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/admin/static/app.css" />
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex items-center justify-center">
+
+<div class="w-full max-w-sm bg-white border border-slate-200 rounded-xl shadow-sm p-8">
+  <div class="mb-6">
+    <div class="text-xs text-slate-400 tracking-wide">ANY MANAGER</div>
+    <h1 id="form-title" class="text-xl font-semibold text-slate-900 mt-1">管理员登录</h1>
+    <p id="form-subtitle" class="text-sm text-slate-500 mt-1">输入下游 API Key 登录管理后台。</p>
+  </div>
+
+  <form id="login-form" class="space-y-4 hidden">
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">下游 API Key</label>
+      <input type="password" name="password" autocomplete="current-password"
+             class="w-full px-3 py-2 rounded-md border border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm" required />
+    </div>
+    <button type="submit" class="w-full py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition">登录</button>
+  </form>
+
+  <form id="bootstrap-form" class="space-y-4 hidden">
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">设置下游 API Key</label>
+      <input type="password" name="downstream_api_key" autocomplete="new-password"
+             class="w-full px-3 py-2 rounded-md border border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm" required />
+      <p class="text-xs text-slate-400 mt-2">首次部署：此 Key 将同时作为下游客户端 API Key 与管理员登录密码。</p>
+    </div>
+    <button type="submit" class="w-full py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition">初始化</button>
+  </form>
+
+  <div id="form-loading" class="text-center text-sm text-slate-400 py-6">加载中…</div>
+</div>
+
+<div id="toast-root" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+<script src="/admin/static/common.js"></script>
+<script src="/admin/static/login.js"></script>
+</body>
+</html>
+{{end}}

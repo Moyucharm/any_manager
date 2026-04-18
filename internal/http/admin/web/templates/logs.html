@@ -1,0 +1,63 @@
+{{define "content"}}
+<div class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+  <form id="filter-form" class="flex flex-wrap items-end gap-3">
+    <div>
+      <label class="label">路由</label>
+      <select class="field" name="route" id="f-route">
+        <option value="">全部</option>
+        <option value="public">public</option>
+        <option value="admin">admin</option>
+      </select>
+    </div>
+    <div>
+      <label class="label">结果</label>
+      <select class="field" name="result" id="f-result">
+        <option value="">全部</option>
+        <option value="success">成功</option>
+        <option value="failure">失败</option>
+      </select>
+    </div>
+    <div>
+      <label class="label">每页</label>
+      <select class="field" name="limit" id="f-limit">
+        <option>50</option><option>100</option><option>200</option><option>500</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">查询</button>
+  </form>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
+  <table class="data">
+    <thead>
+      <tr>
+        <th>时间</th>
+        <th>路由</th>
+        <th>方法</th>
+        <th>上游</th>
+        <th>模型</th>
+        <th>状态</th>
+        <th>结果</th>
+        <th>失败原因</th>
+        <th>延迟</th>
+        <th>请求 ID</th>
+      </tr>
+    </thead>
+    <tbody id="log-tbody">
+      <tr><td colspan="10" class="text-center text-slate-400 py-6">加载中…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="flex items-center justify-between mt-4 text-sm text-slate-500">
+  <div id="pager-info">—</div>
+  <div class="flex gap-2">
+    <button id="prev-btn" class="btn">上一页</button>
+    <button id="next-btn" class="btn">下一页</button>
+  </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/admin/static/logs.js"></script>
+{{end}}

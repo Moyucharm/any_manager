@@ -1,0 +1,37 @@
+{{define "content"}}
+<div class="flex items-center justify-between mb-4">
+  <div class="text-sm text-slate-500">按优先级从高到低排序；可上下移动调整顺序。</div>
+  <div class="flex gap-2">
+    <button id="reload-btn" class="btn">刷新列表</button>
+    <button id="create-btn" class="btn btn-primary">新增 Key</button>
+  </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
+  <table class="data">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>别名</th>
+        <th>Key 提示</th>
+        <th>状态</th>
+        <th>连续失败</th>
+        <th>冷却至</th>
+        <th>余额 (可用/已用/总)</th>
+        <th>最近错误</th>
+        <th>更新时间</th>
+        <th class="text-right">操作</th>
+      </tr>
+    </thead>
+    <tbody id="upstream-tbody">
+      <tr><td colspan="10" class="text-center text-slate-400 py-6">加载中…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div id="modal-root"></div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/admin/static/upstreams.js"></script>
+{{end}}
