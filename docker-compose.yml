@@ -1,0 +1,23 @@
+services:
+  anymanager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_MASTER_KEY: ${APP_MASTER_KEY}
+      PUBLIC_LISTEN_ADDR: :8080
+      ADMIN_LISTEN_ADDR: :8081
+      DB_PATH: /app/data/anymanager.db
+      SESSION_COOKIE_NAME: anymanager_admin_session
+      SESSION_COOKIE_SECURE: "false"
+      UPSTREAM_BASE_URL: https://anyrouter.top
+      UPSTREAM_AUTH_MODE: authorization_bearer
+      FAILOVER_THRESHOLD: "20"
+      COOLDOWN_SECONDS: "600"
+      OUTBOUND_PROXY_URL: ${OUTBOUND_PROXY_URL:-}
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
