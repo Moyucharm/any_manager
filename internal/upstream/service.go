@@ -141,30 +141,66 @@ func (s *Service) RefreshBalance(ctx context.Context, id int64) (store.UpstreamK
 	if err != nil {
 		return store.UpstreamKey{}, fmt.Errorf("parse upstream base url: %w", err)
 	}
-	usageURL := *baseURL
-	usageURL.Path = joinURLPath(baseURL.Path, "/api/usage/token")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, usageURL.String(), nil)
+
+	usage, err := fetchJSON(ctx, client, apiKey, baseURL, "/v1/dashboard/billing/usage")
 	if err != nil {
-		return store.UpstreamKey{}, fmt.Errorf("build usage request: %w", err)
+		return store.UpstreamKey{}, fmt.Errorf("usage endpoint: %w", err)
+	}
+	sub, err := fetchJSON(ctx, client, apiKey, baseURL, "/v1/dashboard/billing/subscription")
+	if err != nil {
+		return store.UpstreamKey{}, fmt.Errorf("subscription endpoint: %w", err)
+	}
+
+	balance := store.UpstreamBalance{}
+	if used, ok := toFloat(usage["total_usage"]); ok {
+		balance.TotalUsed = &used
+	}
+	if granted, ok := toFloat(sub["hard_limit_usd"]); ok && granted > 0 && granted < 1e8 {
+		balance.TotalGranted = &granted
+		if balance.TotalUsed != nil {
+			available := granted - *balance.TotalUsed
+			if available < 0 {
+				available = 0
+			}
+			balance.TotalAvailable = &available
+		}
+	}
+	return s.repo.UpdateUpstreamBalance(ctx, id, balance)
+}
+
+func fetchJSON(ctx context.Context, client *http.Client, apiKey string, base *url.URL, path string) (map[string]any, error) {
+	u := *base
+	u.Path = joinURLPath(base.Path, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Accept", "application/json")
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "AnyManager/1.0")
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return store.UpstreamKey{}, fmt.Errorf("request usage endpoint: %w", err)
+		return nil, fmt.Errorf("request: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return store.UpstreamKey{}, fmt.Errorf("read usage response: %w", err)
+		return nil, fmt.Errorf("read body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return store.UpstreamKey{}, fmt.Errorf("usage endpoint returned %d: %s", resp.StatusCode, summarizeBody(body))
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, summarizeBody(body))
 	}
-	balance, err := decodeUsageBalance(body)
-	if err != nil {
-		return store.UpstreamKey{}, err
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "json") {
+		return nil, fmt.Errorf("unexpected content-type %q: %s", ct, summarizeBody(body))
 	}
-	return s.repo.UpdateUpstreamBalance(ctx, id, balance)
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil, fmt.Errorf("decode json: %w (body=%q)", err, summarizeBody(body))
+	}
+	return decoded, nil
 }
 
 func (s *Service) Status(ctx context.Context) (Status, error) {
@@ -206,42 +242,6 @@ func filterAvailable(keys []store.UpstreamKey, now time.Time) []store.UpstreamKe
 		return filtered[i].Priority < filtered[j].Priority
 	})
 	return filtered
-}
-
-func decodeUsageBalance(body []byte) (store.UpstreamBalance, error) {
-	var raw map[string]any
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return store.UpstreamBalance{}, fmt.Errorf("decode usage response: %w", err)
-	}
-	if balance, ok := extractUsageBalance(raw); ok {
-		return balance, nil
-	}
-	if nested, ok := raw["data"].(map[string]any); ok {
-		if balance, ok := extractUsageBalance(nested); ok {
-			return balance, nil
-		}
-	}
-	return store.UpstreamBalance{}, fmt.Errorf("usage response missing balance fields")
-}
-
-func extractUsageBalance(raw map[string]any) (store.UpstreamBalance, bool) {
-	granted, ok := toFloat(raw["total_granted"])
-	if !ok {
-		return store.UpstreamBalance{}, false
-	}
-	used, ok := toFloat(raw["total_used"])
-	if !ok {
-		return store.UpstreamBalance{}, false
-	}
-	available, ok := toFloat(raw["total_available"])
-	if !ok {
-		return store.UpstreamBalance{}, false
-	}
-	return store.UpstreamBalance{
-		TotalGranted:   granted,
-		TotalUsed:      used,
-		TotalAvailable: available,
-	}, true
 }
 
 func toFloat(value any) (float64, bool) {

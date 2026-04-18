@@ -34,9 +34,9 @@ type UpstreamKey struct {
 }
 
 type UpstreamBalance struct {
-	TotalGranted   float64 `json:"total_granted"`
-	TotalUsed      float64 `json:"total_used"`
-	TotalAvailable float64 `json:"total_available"`
+	TotalGranted   *float64 `json:"total_granted,omitempty"`
+	TotalUsed      *float64 `json:"total_used,omitempty"`
+	TotalAvailable *float64 `json:"total_available,omitempty"`
 }
 
 type UpdateAppConfigInput struct {

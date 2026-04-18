@@ -199,15 +199,18 @@ func TestPublicProxyStreamingAndFailoverThreshold(t *testing.T) {
 func TestRefreshBalanceEndpoint(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/usage/token" {
-			http.NotFound(w, r)
-			return
-		}
 		if got := r.Header.Get("Authorization"); got != "Bearer sk-primary" {
 			t.Errorf("Authorization header = %q, want Bearer sk-primary", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"total_granted":100,"total_used":40,"total_available":60}`))
+		switch r.URL.Path {
+		case "/v1/dashboard/billing/usage":
+			_, _ = w.Write([]byte(`{"object":"list","total_usage":40}`))
+		case "/v1/dashboard/billing/subscription":
+			_, _ = w.Write([]byte(`{"object":"billing_subscription","hard_limit_usd":100}`))
+		default:
+			http.NotFound(w, r)
+		}
 	})
 	env.bootstrapDownstream(t, "downstream-secret")
 	key, err := env.upstreams.Create(context.Background(), "primary", "sk-primary", true)
@@ -226,8 +229,14 @@ func TestRefreshBalanceEndpoint(t *testing.T) {
 		t.Fatalf("refresh balance status = %d, want %d", refreshResp.StatusCode, http.StatusOK)
 	}
 	body := readBody(t, refreshResp.Body)
-	if !strings.Contains(body, `"last_balance_total_available":60`) {
-		t.Fatalf("refresh balance body = %s", body)
+	for _, want := range []string{
+		`"last_balance_total_used":40`,
+		`"last_balance_total_granted":100`,
+		`"last_balance_total_available":60`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("refresh balance body = %s; missing %s", body, want)
+		}
 	}
 }
 
@@ -266,7 +275,11 @@ func newTestEnv(t *testing.T, upstreamHandler http.HandlerFunc) *testEnv {
 	forwarder := proxy.NewForwarder(repo, upstreamService, clientFactory)
 	publicServer := httptest.NewServer(publichttp.NewServer(repo, hasher, forwarder).Router())
 	t.Cleanup(publicServer.Close)
-	adminServer := httptest.NewServer(adminhttp.NewServer(repo, hasher, sessions, upstreamService, metricsService).Router())
+	adminSrv, err := adminhttp.NewServer(repo, hasher, sessions, upstreamService, metricsService)
+	if err != nil {
+		t.Fatalf("adminhttp.NewServer() error = %v", err)
+	}
+	adminServer := httptest.NewServer(adminSrv.Router())
 	t.Cleanup(adminServer.Close)
 	return &testEnv{
 		repo:         repo,
