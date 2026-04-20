@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,11 @@ type Server struct {
 	upstreams *upstream.Service
 	metrics   *metrics.Service
 	renderer  *web.Renderer
+}
+
+type modelRedirectInput struct {
+	DownstreamModel string `json:"downstream_model"`
+	UpstreamModel   string `json:"upstream_model"`
 }
 
 func NewServer(repo *store.Repository, hasher *security.Hasher, sessions *auth.SessionManager, upstreams *upstream.Service, metrics *metrics.Service) (*Server, error) {
@@ -172,9 +178,14 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load configuration")
 		return
 	}
+	configPayload, err := s.configPayload(r.Context(), appConfig)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load model redirects")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"has_downstream_key": appConfig.DownstreamKeyHash != "",
-		"config":             sanitizeConfig(appConfig),
+		"config":             configPayload,
 	})
 }
 
@@ -185,15 +196,24 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		OutboundProxyURL  *string `json:"outbound_proxy_url"`
-		UpstreamBaseURL   *string `json:"upstream_base_url"`
-		UpstreamAuthMode  *string `json:"upstream_auth_mode"`
-		FailoverThreshold *int    `json:"failover_threshold"`
-		CooldownSeconds   *int    `json:"cooldown_seconds"`
+		OutboundProxyURL  *string               `json:"outbound_proxy_url"`
+		UpstreamBaseURL   *string               `json:"upstream_base_url"`
+		UpstreamAuthMode  *string               `json:"upstream_auth_mode"`
+		FailoverThreshold *int                  `json:"failover_threshold"`
+		CooldownSeconds   *int                  `json:"cooldown_seconds"`
+		ModelRedirects    *[]modelRedirectInput `json:"model_redirects"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
+	}
+	var redirects []store.ModelRedirect
+	if request.ModelRedirects != nil {
+		redirects, err = normalizeModelRedirects(*request.ModelRedirects)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	input := store.UpdateAppConfigInput{
 		OutboundProxyURL:  current.OutboundProxyURL,
@@ -246,7 +266,18 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update configuration")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"config": sanitizeConfig(updated)})
+	if request.ModelRedirects != nil {
+		if err := s.repo.ReplaceModelRedirects(r.Context(), redirects); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update model redirects")
+			return
+		}
+	}
+	configPayload, err := s.configPayload(r.Context(), updated)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load model redirects")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"config": configPayload})
 }
 
 func (s *Server) handleResetDownstream(w http.ResponseWriter, r *http.Request) {
@@ -272,8 +303,13 @@ func (s *Server) handleResetDownstream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update downstream API key")
 		return
 	}
+	configPayload, err := s.configPayload(r.Context(), updated)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load model redirects")
+		return
+	}
 	s.sessions.ClearCookie(w)
-	writeJSON(w, http.StatusOK, map[string]any{"config": sanitizeConfig(updated), "sessions_invalidated": true})
+	writeJSON(w, http.StatusOK, map[string]any{"config": configPayload, "sessions_invalidated": true})
 }
 
 func (s *Server) handleListUpstreams(w http.ResponseWriter, r *http.Request) {
@@ -566,6 +602,37 @@ func sanitizeConfig(appConfig store.AppConfig) map[string]any {
 		"created_at":         appConfig.CreatedAt,
 		"updated_at":         appConfig.UpdatedAt,
 	}
+}
+
+func (s *Server) configPayload(ctx context.Context, appConfig store.AppConfig) (map[string]any, error) {
+	redirects, err := s.repo.ListModelRedirects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	config := sanitizeConfig(appConfig)
+	config["model_redirects"] = redirects
+	return config, nil
+}
+
+func normalizeModelRedirects(inputs []modelRedirectInput) ([]store.ModelRedirect, error) {
+	redirects := make([]store.ModelRedirect, 0, len(inputs))
+	seen := make(map[string]struct{}, len(inputs))
+	for index, input := range inputs {
+		downstreamModel := strings.TrimSpace(input.DownstreamModel)
+		upstreamModel := strings.TrimSpace(input.UpstreamModel)
+		if downstreamModel == "" || upstreamModel == "" {
+			return nil, fmt.Errorf("model_redirects[%d] requires downstream_model and upstream_model", index)
+		}
+		if _, ok := seen[downstreamModel]; ok {
+			return nil, fmt.Errorf("duplicate downstream_model %q", downstreamModel)
+		}
+		seen[downstreamModel] = struct{}{}
+		redirects = append(redirects, store.ModelRedirect{
+			DownstreamModel: downstreamModel,
+			UpstreamModel:   upstreamModel,
+		})
+	}
+	return redirects, nil
 }
 
 func parseIDParam(r *http.Request, key string) (int64, error) {

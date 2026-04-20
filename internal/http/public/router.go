@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -56,6 +57,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if ok := s.authenticate(w, r, "/v1/messages", model); !ok {
 		return
 	}
+	rewrittenBody, err := s.rewriteModelRequest(r.Context(), body, model)
+	if err != nil {
+		s.logFailure(r.Context(), baseFailureLog(r, "/v1/messages", model, http.StatusInternalServerError, "failed to apply model redirect"))
+		writeJSONError(w, http.StatusInternalServerError, "failed to apply model redirect")
+		return
+	}
+	body = rewrittenBody
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	s.forwarder.Proxy(w, r, "/v1/messages", body, model)
 }
@@ -135,6 +143,33 @@ func extractModel(body []byte) string {
 		return ""
 	}
 	return strings.TrimSpace(payload.Model)
+}
+
+func (s *Server) rewriteModelRequest(ctx context.Context, body []byte, model string) ([]byte, error) {
+	if model == "" {
+		return body, nil
+	}
+	redirect, err := s.repo.LookupModelRedirect(ctx, model)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return body, nil
+		}
+		return nil, err
+	}
+	return replaceModel(body, redirect.UpstreamModel)
+}
+
+func replaceModel(body []byte, model string) ([]byte, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	encodedModel, err := json.Marshal(model)
+	if err != nil {
+		return nil, err
+	}
+	payload["model"] = encodedModel
+	return json.Marshal(payload)
 }
 
 func writeJSONError(w http.ResponseWriter, statusCode int, message string) {

@@ -47,6 +47,11 @@ type UpdateAppConfigInput struct {
 	CooldownSeconds   int
 }
 
+type ModelRedirect struct {
+	DownstreamModel string `json:"downstream_model"`
+	UpstreamModel   string `json:"upstream_model"`
+}
+
 type RequestLog struct {
 	ID            int64     `json:"id"`
 	RequestTS     time.Time `json:"request_ts"`

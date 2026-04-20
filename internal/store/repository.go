@@ -109,6 +109,64 @@ func (r *Repository) UpdateAppConfig(ctx context.Context, input UpdateAppConfigI
 	return r.GetAppConfig(ctx)
 }
 
+func (r *Repository) LookupModelRedirect(ctx context.Context, downstreamModel string) (ModelRedirect, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT downstream_model, upstream_model
+		FROM model_redirects
+		WHERE downstream_model = ?
+	`, downstreamModel)
+	return scanModelRedirect(row)
+}
+
+func (r *Repository) ListModelRedirects(ctx context.Context) ([]ModelRedirect, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT downstream_model, upstream_model
+		FROM model_redirects
+		ORDER BY downstream_model ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list model redirects: %w", err)
+	}
+	defer rows.Close()
+
+	redirects := make([]ModelRedirect, 0)
+	for rows.Next() {
+		redirect, err := scanModelRedirect(rows)
+		if err != nil {
+			return nil, err
+		}
+		redirects = append(redirects, redirect)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model redirects: %w", err)
+	}
+	return redirects, nil
+}
+
+func (r *Repository) ReplaceModelRedirects(ctx context.Context, redirects []ModelRedirect) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin replace model redirects transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM model_redirects`); err != nil {
+		return fmt.Errorf("clear model redirects: %w", err)
+	}
+	for _, redirect := range redirects {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO model_redirects (downstream_model, upstream_model)
+			VALUES (?, ?)
+		`, redirect.DownstreamModel, redirect.UpstreamModel); err != nil {
+			return fmt.Errorf("insert model redirect %q: %w", redirect.DownstreamModel, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit replace model redirects transaction: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) ListUpstreamKeys(ctx context.Context) ([]UpstreamKey, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, alias, key_hint, encrypted_api_key, is_enabled, priority, consecutive_failures, cooldown_until,
@@ -609,6 +667,17 @@ func scanUpstreamKey(scanner interface{ Scan(dest ...any) error }) (UpstreamKey,
 		key.LastBalanceCheckedAt = &lastBalanceCheckedAt.Time
 	}
 	return key, nil
+}
+
+func scanModelRedirect(scanner interface{ Scan(dest ...any) error }) (ModelRedirect, error) {
+	var redirect ModelRedirect
+	if err := scanner.Scan(&redirect.DownstreamModel, &redirect.UpstreamModel); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ModelRedirect{}, ErrNotFound
+		}
+		return ModelRedirect{}, fmt.Errorf("scan model redirect: %w", err)
+	}
+	return redirect, nil
 }
 
 func scanRequestLog(scanner interface{ Scan(dest ...any) error }) (RequestLog, error) {

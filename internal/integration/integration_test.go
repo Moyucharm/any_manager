@@ -135,6 +135,52 @@ func TestPublicProxyModelsAndMessages(t *testing.T) {
 	}
 }
 
+func TestPublicProxyRewritesConfiguredModel(t *testing.T) {
+	t.Parallel()
+	receivedModel := make(chan string, 1)
+	env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
+		body := readBody(t, r.Body)
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		receivedModel <- payload.Model
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","model":"claude-4-7-opus","usage":{"input_tokens":3,"output_tokens":5}}`))
+	})
+	env.bootstrapDownstream(t, "downstream-secret")
+	if _, err := env.upstreams.Create(context.Background(), "primary", "sk-primary", true); err != nil {
+		t.Fatalf("Create(primary) error = %v", err)
+	}
+	if err := env.repo.ReplaceModelRedirects(context.Background(), []store.ModelRedirect{{
+		DownstreamModel: "claude-4-6-opus",
+		UpstreamModel:   "claude-4-7-opus",
+	}}); err != nil {
+		t.Fatalf("ReplaceModelRedirects() error = %v", err)
+	}
+
+	resp := postPublicMessage(t, env.publicServer.URL, "downstream-secret", `{"model":"claude-4-6-opus","messages":[]}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("messages status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if got := <-receivedModel; got != "claude-4-7-opus" {
+		t.Fatalf("upstream received model = %q, want %q", got, "claude-4-7-opus")
+	}
+	logs, err := env.repo.ListRequestLogs(context.Background(), time.Now().UTC().Add(-24*time.Hour), store.RequestLogFilter{})
+	if err != nil {
+		t.Fatalf("ListRequestLogs() error = %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("log count = %d, want 1", len(logs))
+	}
+	if logs[0].Model != "claude-4-6-opus" {
+		t.Fatalf("logged model = %q, want %q", logs[0].Model, "claude-4-6-opus")
+	}
+}
+
 func TestPublicProxyStreamingAndFailoverThreshold(t *testing.T) {
 	t.Parallel()
 	var primaryHits atomic.Int32
@@ -333,6 +379,62 @@ func TestRefreshBalanceEndpoint(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("refresh balance body = %s; missing %s", body, want)
 		}
+	}
+}
+
+func TestAdminConfigStoresModelRedirects(t *testing.T) {
+	t.Parallel()
+	env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+	env.bootstrapDownstream(t, "downstream-secret")
+	client := newCookieClient(t)
+	loginResp := postJSON(t, client, env.adminServer.URL+"/admin/api/login", map[string]any{"password": "downstream-secret"})
+	defer loginResp.Body.Close()
+	if loginResp.StatusCode != http.StatusOK {
+		t.Fatalf("login status = %d, want %d", loginResp.StatusCode, http.StatusOK)
+	}
+
+	updateResp := doJSON(t, client, http.MethodPut, env.adminServer.URL+"/admin/api/config", map[string]any{
+		"model_redirects": []map[string]string{{
+			"downstream_model": "claude-4-6-opus",
+			"upstream_model":   "claude-4-7-opus",
+		}},
+	}, nil)
+	defer updateResp.Body.Close()
+	if updateResp.StatusCode != http.StatusOK {
+		t.Fatalf("update config status = %d, want %d", updateResp.StatusCode, http.StatusOK)
+	}
+
+	redirects, err := env.repo.ListModelRedirects(context.Background())
+	if err != nil {
+		t.Fatalf("ListModelRedirects() error = %v", err)
+	}
+	if len(redirects) != 1 {
+		t.Fatalf("redirect count = %d, want 1", len(redirects))
+	}
+	if redirects[0].DownstreamModel != "claude-4-6-opus" || redirects[0].UpstreamModel != "claude-4-7-opus" {
+		t.Fatalf("redirect = %+v", redirects[0])
+	}
+
+	getResp := mustDo(t, client, mustNewRequest(t, http.MethodGet, env.adminServer.URL+"/admin/api/config", nil))
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get config status = %d, want %d", getResp.StatusCode, http.StatusOK)
+	}
+	var payload struct {
+		Config struct {
+			ModelRedirects []store.ModelRedirect `json:"model_redirects"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(getResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+	}
+	if len(payload.Config.ModelRedirects) != 1 {
+		t.Fatalf("response redirect count = %d, want 1", len(payload.Config.ModelRedirects))
+	}
+	if payload.Config.ModelRedirects[0].DownstreamModel != "claude-4-6-opus" || payload.Config.ModelRedirects[0].UpstreamModel != "claude-4-7-opus" {
+		t.Fatalf("response redirect = %+v", payload.Config.ModelRedirects[0])
 	}
 }
 

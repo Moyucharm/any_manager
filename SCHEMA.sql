@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS upstream_keys (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_upstream_keys_priority
 ON upstream_keys(priority);
 
+CREATE TABLE IF NOT EXISTS model_redirects (
+    downstream_model TEXT PRIMARY KEY,
+    upstream_model TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS request_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     request_ts DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
